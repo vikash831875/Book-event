@@ -86,7 +86,7 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-PORT=5000
+PORT=5001
 DATABASE_URL="postgresql://postgres:password@localhost:5432/bookit?schema=public"
 JWT_SECRET=your_super_secret_jwt_key_change_in_production
 ```
