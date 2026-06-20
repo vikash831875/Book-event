@@ -13,6 +13,7 @@ import EditEvent from './pages/organizer/EditEvent';
 import OrganizerEvents from './pages/organizer/OrganizerEvents';
 import Attendees from './pages/organizer/Attendees';
 import Analytics from './pages/organizer/Analytics';
+import Insights from './pages/organizer/Insights';
 
 function App() {
   return (
@@ -79,6 +80,14 @@ function App() {
           element={
             <ProtectedRoute roles={['ORGANIZER']}>
               <Analytics />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/organizer/insights/:metric"
+          element={
+            <ProtectedRoute roles={['ORGANIZER']}>
+              <Insights />
             </ProtectedRoute>
           }
         />

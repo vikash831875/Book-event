@@ -7,6 +7,23 @@ const getConfirmedBookingCount = async (eventId, tx = prisma) => {
   });
 };
 
+const getConfirmedBookingCountsByEvent = async (eventIds, tx = prisma) => {
+  if (!eventIds.length) return {};
+
+  const counts = await tx.booking.groupBy({
+    by: ['eventId'],
+    where: {
+      eventId: { in: eventIds },
+      status: 'CONFIRMED',
+    },
+    _count: {
+      _all: true,
+    },
+  });
+
+  return Object.fromEntries(counts.map((item) => [item.eventId, item._count._all]));
+};
+
 export const formatEventWithSeats = async (event, tx = prisma) => {
   const seatsSold = await getConfirmedBookingCount(event.id, tx);
   const remainingSeats = Math.max(0, event.capacity - seatsSold);
@@ -15,7 +32,7 @@ export const formatEventWithSeats = async (event, tx = prisma) => {
     ...event,
     seatsSold,
     remainingSeats,
-    isSoldOut: remainingSeats === 0,
+    isSoldOut: seatsSold >= event.capacity,
   };
 };
 
@@ -231,53 +248,128 @@ export const getOrganizerEvents = async (organizerId) => {
     orderBy: { eventDate: 'desc' },
   });
 
-  return Promise.all(
-    events.map(async (event) => {
-      const seatsSold = await getConfirmedBookingCount(event.id);
-      const revenue = seatsSold * event.price;
+  const eventIds = events.map((event) => event.id);
+  const bookingCounts = await getConfirmedBookingCountsByEvent(eventIds);
 
-      return {
-        ...event,
-        seatsSold,
-        remainingSeats: event.capacity - seatsSold,
-        revenue,
-        isSoldOut: seatsSold >= event.capacity,
-      };
-    })
-  );
+  const activityLogs = await prisma.activityLog.groupBy({
+    by: ['eventId', 'actionType'],
+    where: { eventId: { in: eventIds } },
+    _count: { actionType: true },
+  });
+
+  const eventLogMap = {};
+  activityLogs.forEach((entry) => {
+    eventLogMap[entry.eventId] = eventLogMap[entry.eventId] || {};
+    eventLogMap[entry.eventId][entry.actionType] = entry._count.actionType;
+  });
+
+  return events.map((event) => {
+    const seatsSold = bookingCounts[event.id] ?? 0;
+    const views = eventLogMap[event.id]?.EVENT_VIEWED ?? 0;
+    const confirmedBookings = eventLogMap[event.id]?.BOOKING_CONFIRMED ?? seatsSold;
+    const conversionRate = views > 0 ? parseFloat(((confirmedBookings / views) * 100).toFixed(2)) : 0;
+    const revenue = seatsSold * event.price;
+
+    return {
+      ...event,
+      seatsSold,
+      remainingSeats: Math.max(0, event.capacity - seatsSold),
+      revenue,
+      isSoldOut: seatsSold >= event.capacity,
+      views,
+      conversionRate,
+    };
+  });
 };
 
 export const getOrganizerDashboard = async (organizerId) => {
   const events = await prisma.event.findMany({
     where: { organizerId },
-    select: { id: true, price: true },
+    select: {
+      id: true,
+      title: true,
+      price: true,
+      capacity: true,
+      eventDate: true,
+    },
   });
 
   const eventIds = events.map((e) => e.id);
   const totalEvents = events.length;
 
   if (totalEvents === 0) {
-    return { totalEvents: 0, totalBookings: 0, totalRevenue: 0 };
+    return {
+      totalEvents: 0,
+      totalBookings: 0,
+      totalRevenue: 0,
+      soldOutEvents: 0,
+      upcomingEvents: 0,
+      averageRevenuePerEvent: 0,
+      averageBookingsPerEvent: 0,
+      overallConversionRate: 0,
+      topEvent: null,
+    };
   }
 
-  const bookings = await prisma.booking.findMany({
+  const bookingGroups = await prisma.booking.groupBy({
+    by: ['eventId'],
     where: { eventId: { in: eventIds }, status: 'CONFIRMED' },
-    select: { eventId: true },
+    _count: { _all: true },
   });
 
-  const priceMap = Object.fromEntries(events.map((e) => [e.id, e.price]));
-  const totalRevenue = bookings.reduce((sum, b) => sum + (priceMap[b.eventId] || 0), 0);
+  const activityGroups = await prisma.activityLog.groupBy({
+    by: ['actionType'],
+    where: { eventId: { in: eventIds } },
+    _count: { actionType: true },
+  });
+
+  const bookingCountMap = Object.fromEntries(
+    bookingGroups.map((group) => [group.eventId, group._count._all])
+  );
+
+  const totalBookings = bookingGroups.reduce((sum, group) => sum + group._count._all, 0);
+  const totalRevenue = events.reduce(
+    (sum, event) => sum + (bookingCountMap[event.id] || 0) * event.price,
+    0
+  );
+
+  const today = new Date();
+  const soldOutEvents = events.filter(
+    (event) => (bookingCountMap[event.id] || 0) >= event.capacity
+  ).length;
+  const upcomingEvents = events.filter((event) => event.eventDate >= today).length;
+  const averageRevenuePerEvent = totalEvents > 0 ? totalRevenue / totalEvents : 0;
+  const averageBookingsPerEvent = totalEvents > 0 ? totalBookings / totalEvents : 0;
+
+  const viewsCount = activityGroups.find((group) => group.actionType === 'EVENT_VIEWED')?._count.actionType || 0;
+  const overallConversionRate = viewsCount > 0 ? parseFloat(((totalBookings / viewsCount) * 100).toFixed(2)) : 0;
+
+  const topEvent = events
+    .map((event) => ({
+      id: event.id,
+      title: event.title,
+      revenue: (bookingCountMap[event.id] || 0) * event.price,
+      bookings: bookingCountMap[event.id] || 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue)[0] || null;
 
   return {
     totalEvents,
-    totalBookings: bookings.length,
+    totalBookings,
     totalRevenue,
+    soldOutEvents,
+    upcomingEvents,
+    averageRevenuePerEvent,
+    averageBookingsPerEvent,
+    overallConversionRate,
+    topEvent,
   };
 };
 
 export const getEventAttendees = async (eventId, organizerId) => {
   const event = await prisma.event.findFirst({
     where: { id: eventId, organizerId },
+    select: { id: true, title: true },
   });
 
   if (!event) {
@@ -285,7 +377,7 @@ export const getEventAttendees = async (eventId, organizerId) => {
   }
 
   const bookings = await prisma.booking.findMany({
-    where: { eventId, status: 'CONFIRMED' },
+    where: { eventId },
     include: {
       user: {
         select: { name: true, email: true },
@@ -294,17 +386,29 @@ export const getEventAttendees = async (eventId, organizerId) => {
     orderBy: { createdAt: 'desc' },
   });
 
-  return bookings.map((booking) => ({
-    id: booking.id,
-    name: booking.user.name,
-    email: booking.user.email,
-    bookingDate: booking.createdAt,
-  }));
+  return {
+    eventTitle: event.title,
+    attendees: bookings.map((booking) => ({
+      id: booking.id,
+      name: booking.user.name,
+      email: booking.user.email,
+      bookingDate: booking.createdAt,
+      status: booking.status,
+    })),
+  };
 };
 
 export const getEventAnalytics = async (eventId, organizerId) => {
   const event = await prisma.event.findFirst({
     where: { id: eventId, organizerId },
+    select: {
+      id: true,
+      title: true,
+      venue: true,
+      eventDate: true,
+      capacity: true,
+      price: true,
+    },
   });
 
   if (!event) {
@@ -315,6 +419,12 @@ export const getEventAnalytics = async (eventId, organizerId) => {
     by: ['actionType'],
     where: { eventId },
     _count: { actionType: true },
+  });
+
+  const bookingGroups = await prisma.booking.groupBy({
+    by: ['status'],
+    where: { eventId },
+    _count: { status: true },
   });
 
   const counts = {
@@ -328,18 +438,33 @@ export const getEventAnalytics = async (eventId, organizerId) => {
     counts[log.actionType] = log._count.actionType;
   });
 
+  const bookingCountMap = Object.fromEntries(
+    bookingGroups.map((group) => [group.status, group._count.status])
+  );
+
+  const confirmedCount = bookingCountMap.CONFIRMED || 0;
+  const cancelledCount = bookingCountMap.CANCELLED || 0;
   const totalViews = counts.EVENT_VIEWED;
-  const bookingConfirmed = counts.BOOKING_CONFIRMED;
-  const conversionRate =
-    totalViews > 0 ? parseFloat(((bookingConfirmed / totalViews) * 100).toFixed(2)) : 0;
+  const conversionRate = totalViews > 0 ? parseFloat(((confirmedCount / totalViews) * 100).toFixed(2)) : 0;
+  const revenue = confirmedCount * event.price;
+  const remainingSeats = Math.max(0, event.capacity - confirmedCount);
+  const bookingRate = event.capacity > 0 ? parseFloat(((confirmedCount / event.capacity) * 100).toFixed(2)) : 0;
 
   return {
     eventId,
     eventTitle: event.title,
+    venue: event.venue,
+    eventDate: event.eventDate,
+    capacity: event.capacity,
+    price: event.price,
     totalViews,
     bookingStarted: counts.BOOKING_STARTED,
-    bookingConfirmed,
-    bookingCancelled: counts.BOOKING_CANCELLED,
+    bookingConfirmed: confirmedCount,
+    bookingCancelled: cancelledCount,
     conversionRate,
+    revenue,
+    seatsSold: confirmedCount,
+    remainingSeats,
+    bookingRate,
   };
 };

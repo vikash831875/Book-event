@@ -53,6 +53,8 @@ const OrganizerEvents = () => {
                   <th className="pb-3 text-sm font-semibold text-gray-600">Date</th>
                   <th className="pb-3 text-sm font-semibold text-gray-600">Capacity</th>
                   <th className="pb-3 text-sm font-semibold text-gray-600">Seats Sold</th>
+                  <th className="pb-3 text-sm font-semibold text-gray-600">Views</th>
+                  <th className="pb-3 text-sm font-semibold text-gray-600">Conversion</th>
                   <th className="pb-3 text-sm font-semibold text-gray-600">Revenue</th>
                   <th className="pb-3 text-sm font-semibold text-gray-600">Actions</th>
                 </tr>
@@ -64,6 +66,8 @@ const OrganizerEvents = () => {
                     <td className="py-4 text-gray-600 text-sm">{event.eventDate ? formatDate(event.eventDate) : 'TBD'}</td>
                     <td className="py-4 text-gray-600">{event.capacity ?? 0}</td>
                     <td className="py-4 text-gray-600">{event.seatsSold ?? 0}</td>
+                    <td className="py-4 text-gray-600">{event.views ?? 0}</td>
+                    <td className="py-4 text-gray-600">{event.conversionRate?.toFixed(2) ?? '0.00'}%</td>
                     <td className="py-4 font-medium text-green-600">${Number(event.revenue ?? 0).toFixed(2)}</td>
                     <td className="py-4">
                       <div className="flex gap-2">

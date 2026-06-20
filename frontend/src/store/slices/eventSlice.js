@@ -90,7 +90,7 @@ export const fetchAttendees = createAsyncThunk(
   async (id, { rejectWithValue }) => {
     try {
       const response = await organizerAPI.getAttendees(id);
-      return response.data.data.attendees;
+      return response.data.data;
     } catch (error) {
       return rejectWithValue(error.message);
     }
@@ -117,6 +117,7 @@ const eventSlice = createSlice({
     organizerEvents: [],
     dashboard: null,
     attendees: [],
+    attendeesEventTitle: '',
     analytics: null,
     pagination: { page: 1, limit: 10, total: 0, totalPages: 0 },
     loading: false,
@@ -211,7 +212,8 @@ const eventSlice = createSlice({
         state.dashboard = action.payload;
       })
       .addCase(fetchAttendees.fulfilled, (state, action) => {
-        state.attendees = action.payload;
+        state.attendees = action.payload.attendees || [];
+        state.attendeesEventTitle = action.payload.eventTitle || '';
       })
       .addCase(fetchAnalytics.fulfilled, (state, action) => {
         state.analytics = action.payload;

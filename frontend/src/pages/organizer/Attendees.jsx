@@ -9,7 +9,7 @@ import EmptyState from '../../components/EmptyState';
 const Attendees = () => {
   const { id } = useParams();
   const dispatch = useDispatch();
-  const { attendees } = useSelector((state) => state.events);
+  const { attendees, attendeesEventTitle } = useSelector((state) => state.events);
 
   useEffect(() => {
     dispatch(fetchAttendees(id));
@@ -34,7 +34,10 @@ const Attendees = () => {
         </Link>
 
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Attendees</h1>
-        <p className="text-gray-500 mb-8">View confirmed bookings for this event</p>
+        {attendeesEventTitle && (
+          <p className="text-gray-700 mb-2">Event: <strong>{attendeesEventTitle}</strong></p>
+        )}
+        <p className="text-gray-500 mb-8">View attendee registrations and booking status for this event.</p>
 
         {!attendees ? (
           <LoadingSpinner className="py-20" />
@@ -47,6 +50,7 @@ const Attendees = () => {
                 <tr className="border-b border-gray-200">
                   <th className="pb-3 text-sm font-semibold text-gray-600">Name</th>
                   <th className="pb-3 text-sm font-semibold text-gray-600">Email</th>
+                  <th className="pb-3 text-sm font-semibold text-gray-600">Status</th>
                   <th className="pb-3 text-sm font-semibold text-gray-600">Booking Date</th>
                 </tr>
               </thead>
@@ -55,6 +59,11 @@ const Attendees = () => {
                   <tr key={attendee.id} className="border-b border-gray-100 last:border-0">
                     <td className="py-4 font-medium text-gray-900">{attendee.name}</td>
                     <td className="py-4 text-gray-600">{attendee.email}</td>
+                    <td className="py-4 text-sm font-medium text-gray-900">
+                      <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${attendee.status === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-700' : 'bg-yellow-100 text-yellow-800'}`}>
+                        {attendee.status}
+                      </span>
+                    </td>
                     <td className="py-4 text-gray-600 text-sm">{formatDate(attendee.bookingDate)}</td>
                   </tr>
                 ))}
